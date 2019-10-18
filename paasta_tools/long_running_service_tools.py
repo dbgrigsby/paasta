@@ -33,6 +33,7 @@ ZK_PAUSE_AUTOSCALE_PATH = "/autoscaling/paused"
 
 class LongRunningServiceConfigDict(InstanceConfigDict, total=False):
     drain_method: str
+    iam_role: str
     container_port: int
     drain_method_params: Dict
     healthcheck_cmd: str
@@ -168,6 +169,9 @@ class LongRunningServiceConfig(InstanceConfig):
 
     def get_replication_crit_percentage(self) -> int:
         return self.config_dict.get("replication_threshold", 50)
+
+    def get_iam_role(self) -> str:
+        return self.config_dict.get("iam_role", "")
 
     def get_healthcheck_uri(
         self, service_namespace_config: ServiceNamespaceConfig
