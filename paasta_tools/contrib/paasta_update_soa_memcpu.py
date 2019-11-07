@@ -111,7 +111,6 @@ def get_report_from_splunk(creds, filename, resource_type):
     resp_text = [x for x in resp_text if x]
     resp_text = [json.loads(x) for x in resp_text]
     services_to_update = {}
-#    import pdb; pdb.set_trace()
     for d in resp_text:
         if not 'result' in d:
             raise ValueError("Splunk request didn't return any results")
@@ -240,8 +239,13 @@ def review(filename, summary, description, publish_reviews):
 def edit_soa_configs(filename, instance, cpu, mem):
     if not os.path.exists(filename):
         filename=filename.replace('marathon', 'kubernetes')
+    if os.path.islink(filename):
+        real_filename=os.path.realpath(filename)
+        os.remove(filename)
+    else:
+        real_filename=filename
     try:
-        with open(filename, 'r') as fi:
+        with open(real_filename, 'r') as fi:
             yams = fi.read()
             yams = yams.replace('cpus: .', 'cpus: 0.')
             data = yaml.round_trip_load(yams, preserve_quotes=True)
@@ -250,9 +254,8 @@ def edit_soa_configs(filename, instance, cpu, mem):
         if cpu:
             instdict['cpus'] = float(cpu)
         if mem:
-            mem = round(float(mem))
-            if mem > 0:
-                instdict['mem'] = round(float(mem))
+            mem = max(128, round(float(mem)))
+            instdict['mem'] = mem
         out = yaml.round_trip_dump(data, width=120)
 
         with open(filename, 'w') as fi:
@@ -346,6 +349,7 @@ def bulk_rightsize(report, working_dir):
             mem=serv.get('mem', None)
             edit_soa_configs(filename, serv['instance'], cpus, mem)
         bulk_commit(filenames)
+        bulk_review(filenames)
 
 def individual_rightsize(report):
     for serv in cpu_report:
