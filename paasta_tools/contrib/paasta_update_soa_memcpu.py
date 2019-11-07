@@ -107,12 +107,14 @@ def get_report_from_splunk(creds, filename, resource_type):
     data = {'output_mode': 'json', 'search': search}
     creds = creds.split(':')
     resp = requests.post(url, data=data, auth=(creds[0], creds[1]))
-    #import pdb; pdb.set_trace()
     resp_text = resp.text.split('\n')
     resp_text = [x for x in resp_text if x]
     resp_text = [json.loads(x) for x in resp_text]
     services_to_update = {}
+#    import pdb; pdb.set_trace()
     for d in resp_text:
+        if not 'result' in d:
+            raise ValueError("Splunk request didn't return any results")
         criteria = d['result']['criteria']
         serv = {}
         serv['service'] = criteria.split(' ')[0]
@@ -235,32 +237,30 @@ def review(filename, summary, description, publish_reviews):
         )
 
 
-def edit_cpus_soa_configs(filename, instance, cpu):
-    with open(filename, 'r') as fi:
-        yams = fi.read()
-        yams = yams.replace('cpus: .', 'cpus: 0.')
-        data = yaml.round_trip_load(yams, preserve_quotes=True)
+def edit_soa_configs(filename, instance, cpu, mem):
+    if not os.path.exists(filename):
+        filename=filename.replace('marathon', 'kubernetes')
+    try:
+        with open(filename, 'r') as fi:
+            yams = fi.read()
+            yams = yams.replace('cpus: .', 'cpus: 0.')
+            data = yaml.round_trip_load(yams, preserve_quotes=True)
 
-    instdict = data[instance]
-    instdict['cpus'] = cpu
-    out = yaml.round_trip_dump(data, width=120)
+        instdict = data[instance]
+        if cpu:
+            instdict['cpus'] = float(cpu)
+        if mem:
+            mem = round(float(mem))
+            if mem > 0:
+                instdict['mem'] = round(float(mem))
+        out = yaml.round_trip_dump(data, width=120)
 
-    with open(filename, 'w') as fi:
-        fi.write(out)
-
-
-def edit_mem_soa_configs(filename, instance, mem):
-    with open(filename, 'r') as fi:
-        yams = fi.read()
-        data = yaml.round_trip_load(yams, preserve_quotes=True)
-
-    instdict = data[instance]
-    instdict['mem'] = cpu
-    out = yaml.round_trip_dump(data, width=120)
-
-    with open(filename, 'w') as fi:
-        fi.write(out)
-
+        with open(filename, 'w') as fi:
+            fi.write(out)
+    except FileNotFoundError:
+        print('Could not find {}'.format(filename))
+    except KeyError:
+        print('Error in {}'.format(filename))
 
 def create_jira_ticket(serv, creds, description):
     creds = creds.split(':')
@@ -337,15 +337,15 @@ def generate_ticket_content(serv):
 def bulk_rightsize(report, working_dir):
     with cwd(working_dir):
         branch = 'rightsize-bulk-{}'.format(int(time.time()))
+        create_branch(branch)
         filenames=[]
-        for serv in report:
+        for _, serv in report.items():
             filename = '{}/{}.yaml'.format(serv['service'], serv['cluster'])
             filenames.append(filename)
             cpus=serv.get('cpus', None)
             mem=serv.get('mem', None)
             edit_soa_configs(filename, serv['instance'], cpus, mem)
         bulk_commit(filenames)
-        bulk_review(filenames)
 
 def individual_rightsize(report):
     for serv in cpu_report:
@@ -388,9 +388,9 @@ def main(argv=None):
     # CPU and Memory report can come in two different reports. Let's combine them
     combined_report = {}
     if args.cpu_report_csv:
-        import pdb; pdb.set_trace()
         combined_report.update(get_report_from_splunk(args.splunk_creds, args.cpu_report_csv, 'cpu'))
     if args.mem_report_csv:
+        print(args.mem_report_csv)
         combined_report.update(get_report_from_splunk(args.splunk_creds, args.mem_report_csv, 'mem'))
 
     if args.bulk:
